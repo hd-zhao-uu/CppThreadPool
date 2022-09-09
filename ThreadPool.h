@@ -14,13 +14,13 @@
 class ThreadPool {
 private:
     using Task = std::function<void()>;
-    struct Tasks {
-        std::queue <Task> taskQueue;  // task queue
+    struct TaskQueue {
+        std::queue <Task> tasks;  // task queue
         std::mutex qLock;             // lock for the task queue
     };
 
     size_t threadNum;
-    Tasks tasks;
+    TaskQueue taskQueue;
     std::vector <std::thread> pool;  // thread pool
     std::condition_variable cond;    // task queue
     std::atomic<bool> terminated;    // the state of the thread pool
@@ -52,20 +52,20 @@ ThreadPool::ThreadPool(size_t threadNum)
                 // thread definition
                 [this]() -> void {
                     while (true) {
-                        std::unique_lock <std::mutex> locker(tasks.qLock);
+                        std::unique_lock <std::mutex> locker(taskQueue.qLock);
                         // wait until that the task queue is not empty
                         cond.wait(locker, [this]() {
-                            return terminated || !tasks.taskQueue.empty();
+                            return terminated || !taskQueue.tasks.empty();
                         });
 
                         // if the thread-pool is terminated,
                         // try to keep doing the task in the task queue
-                        if (terminated && tasks.taskQueue.empty())
+                        if (terminated && taskQueue.tasks.empty())
                             return;
 
                         // extract the front-most task from the task queue
-                        Task task = std::move(tasks.taskQueue.front());
-                        tasks.taskQueue.pop();
+                        Task task = std::move(taskQueue.tasks.front());
+                        taskQueue.tasks.pop();
 
                         locker.unlock();
 
@@ -94,10 +94,10 @@ auto ThreadPool::addTask(Func &&func, Args &&... args)
     // get the future object associated with the previous `packaged_task`
     std::future <retType> futRet = task->get_future();  // can use `.get` to take the result when the task is done
 
-    std::unique_lock <std::mutex> locker(tasks.qLock);
+    std::unique_lock <std::mutex> locker(taskQueue.qLock);
 
     // add task to the queue
-    (tasks.taskQueue).emplace([task]() {
+    taskQueue.tasks.emplace([task]() {
         (*task)();  // `packaged_task` gets wrapped in `function<void()>` by using `std::bind`
     });
     locker.unlock();
